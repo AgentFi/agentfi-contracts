@@ -4,13 +4,13 @@ pragma solidity 0.8.24;
 import { AccountV3 } from "./AccountV3.sol";
 import { Errors } from "./../libraries/Errors.sol";
 import { BlastableLibrary } from "./../libraries/BlastableLibrary.sol";
-import { IBlastAgentAccount } from "./../interfaces/accounts/IBlastAgentAccount.sol";
+import { IBlastooorGenesisAgentAccount } from "./../interfaces/accounts/IBlastooorGenesisAgentAccount.sol";
 import { IBlast } from "./../interfaces/external/Blast/IBlast.sol";
 import { Blastable } from "./../utils/Blastable.sol";
 
 
 /**
- * @title BlastAgentAccount
+ * @title BlastooorGenesisAgentAccount
  * @author AgentFi
  * @notice An account type used by agents. Built on top of Tokenbound AccountV3.
  *
@@ -18,7 +18,7 @@ import { Blastable } from "./../utils/Blastable.sol";
  *
  * Also comes with some features that integrate the accounts with the Blast ecosystem. The factory configures the account to automatically collect Blast yield and gas rewards on deployment. The TBA owner can claim these gas rewards with [`claimAllGas()`](#claimallgas) or [`claimMaxGas()`](#claimmaxgas). The rewards can also be quoted offchain with [`quoteClaimAllGas()`](#quoteclaimallgas) or [`quoteClaimMaxGas()`](#quoteclaimmaxgas).
  */
-contract BlastAgentAccount is AccountV3, Blastable, IBlastAgentAccount {
+contract BlastooorGenesisAgentAccount is AccountV3, Blastable, IBlastooorGenesisAgentAccount {
 
     /***************************************
     STATE VARIABLES
@@ -32,23 +32,33 @@ contract BlastAgentAccount is AccountV3, Blastable, IBlastAgentAccount {
     // role hash => role owner => is role assigned
     mapping(bytes32 => mapping(address => bool)) internal assignedRoles;
 
+    bool internal _isBlastConfigured;
+
     /***************************************
     CONSTRUCTOR
     ***************************************/
 
     /**
-     * @notice Constructs the BlastAgentAccount contract.
+     * @notice Constructs the BlastooorGenesisAgentAccount contract.
      * @param blast_ The address of the blast gas reward contract.
-     * @param governor_ The address of the gas governor.
+     * @param gasCollector_ The address of the gas collector.
+     * @param blastPoints_ The address of the blast points contract.
+     * @param pointsOperator_ The address of the blast points operator.
+     * @param entryPoint_ The ERC-4337 EntryPoint address.
+     * @param multicallForwarder The MulticallForwarder address.
+     * @param erc6551Registry The ERC-6551 Registry address.
+     * @param _guardian The AccountGuardian address.
      */
     constructor(
         address blast_,
-        address governor_,
+        address gasCollector_,
+        address blastPoints_,
+        address pointsOperator_,
         address entryPoint_,
         address multicallForwarder,
         address erc6551Registry,
         address _guardian
-    ) Blastable(blast_, governor_) AccountV3(entryPoint_, multicallForwarder, erc6551Registry, _guardian) {}
+    ) Blastable(blast_, gasCollector_, blastPoints_, pointsOperator_) AccountV3(entryPoint_, multicallForwarder, erc6551Registry, _guardian) {}
 
     /***************************************
     VIEW FUNCTIONS
@@ -118,6 +128,22 @@ contract BlastAgentAccount is AccountV3, Blastable, IBlastAgentAccount {
     ***************************************/
 
     /**
+     * @notice Configures the Blast ETH native yield, gas rewards, and Blast Points for this contract.
+     */
+    function blastConfigure() external payable override {
+        // if this account has not yet been configured, allow anyone to configure it. should be configured by the factory
+        // if this account has been configured, only allow someone authorized to call it
+        if(_isBlastConfigured) _verifySenderIsValidExecutor();
+        else _isBlastConfigured = true;
+        _verifyIsUnlocked();
+        _updateState();
+        // configure
+        __blast.call(abi.encodeWithSignature("configureAutomaticYield()"));
+        __blast.call(abi.encodeWithSignature("configureClaimableGas()"));
+        if(__pointsOperator != address(0)) __blastPoints.call(abi.encodeWithSignature("configurePointsOperator(address)", __pointsOperator));
+    }
+
+    /**
      * @notice Claims all gas from the blast gas reward contract.
      * Can only be called by a valid executor or role owner for this TBA.
      * @return amountClaimed The amount of gas claimed.
@@ -158,7 +184,7 @@ contract BlastAgentAccount is AccountV3, Blastable, IBlastAgentAccount {
      * @return quoteAmount The amount of gas that can be claimed.
      */
     function quoteClaimAllGas() external payable override virtual returns (uint256 quoteAmount) {
-        try BlastAgentAccount(payable(address(this))).quoteClaimAllGasWithRevert() {}
+        try BlastooorGenesisAgentAccount(payable(address(this))).quoteClaimAllGasWithRevert() {}
         catch (bytes memory reason) {
             quoteAmount = BlastableLibrary.parseRevertReasonForAmount(reason);
         }
@@ -183,7 +209,7 @@ contract BlastAgentAccount is AccountV3, Blastable, IBlastAgentAccount {
      * @return quoteAmount The amount of gas that can be claimed.
      */
     function quoteClaimMaxGas() external payable override virtual returns (uint256 quoteAmount) {
-        try BlastAgentAccount(payable(address(this))).quoteClaimMaxGasWithRevert() {}
+        try BlastooorGenesisAgentAccount(payable(address(this))).quoteClaimMaxGasWithRevert() {}
         catch (bytes memory reason) {
             quoteAmount = BlastableLibrary.parseRevertReasonForAmount(reason);
         }
